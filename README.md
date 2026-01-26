@@ -1,47 +1,85 @@
 # PokeFetch
 
-A CLI tool that displays Pokémon information in a `neofetch`-style format, including ASCII art and stats.
+PokeFetch is a command-line interface (CLI) tool that brings your favorite Pokémon to your terminal in a style inspired by `neofetch`. It displays ASCII art alongside detailed statistics, featuring dynamic coloring based on the Pokémon's type.
+
+## Features
+
+- **ASCII Art**: High-quality ASCII representations of every Pokémon.
+- **Detailed Stats**: Displays ID, Type, Height, Weight, Abilities, and Base Stats (HP, Attack, Defense, etc.).
+- **Live Data**: Fetches up-to-date descriptions and stats from [Pokémon Database](https://pokemondb.net).
+- **Type-Based Coloring**: The output is color-coded to match the Pokémon's primary type (e.g., Red for Fire, Blue for Water).
+- **Responsive Layout**: Automatically adjusts padding to align text perfectly with the ASCII art.
 
 ## Installation
 
-1.  Make sure you have Python installed.
-2.  Install the required package:
+### Prerequisites
+- Python 3.6 or higher
+- Internet connection (for fetching live data)
+
+### Setup
+1.  **Clone the repository** (if applicable) or download the source.
+2.  **Install dependencies**:
+    It is recommended to use a virtual environment.
 
     ```bash
+    # Create a virtual environment
+    python3 -m venv venv
+
+    # Activate the virtual environment
+    # On macOS/Linux:
+    source venv/bin/activate
+    # On Windows:
+    .\venv\Scripts\activate
+
+    # Install requirements
     pip install -r requirements.txt
     ```
 
 ## Usage
 
-Run the script using Python:
+### Basic Usage
+Run the script from your terminal:
 
 ```bash
-python3 pokefetch.py [pokemon_name_or_id]
-```
-
-### Examples
-
-**Get a random Pokémon:**
-
-```bash
+# Get a random Pokémon
 python3 pokefetch.py
+
+# Get a specific Pokémon by name
+python3 pokefetch.py Snorlax
+
+# Get a specific Pokémon by ID
+python3 pokefetch.py 143
 ```
 
-**Get a specific Pokémon by name:**
+### Running Outside a Virtual Environment
+If you prefer not to activate the virtual environment every time, you can run the script using the direct path to the python executable within the `venv` folder:
 
 ```bash
-python3 pokefetch.py Pikachu
-python3 pokefetch.py Charizard
+# macOS/Linux
+./venv/bin/python3 pokefetch.py Pikachu
+
+# Windows
+.\venv\Scripts\python.exe pokefetch.py Pikachu
 ```
 
-**Get a specific Pokémon by ID:**
+Alternatively, you can install the dependencies globally (not recommended for system stability) using `pip install -r requirements.txt` and then run `python3 pokefetch.py` directly.
 
-```bash
-python3 pokefetch.py 150
-```
+## Configuration
+The script currently supports command-line arguments. No configuration file is needed.
 
-## Features
+- `[name_or_id]`: Optional. The name (case-insensitive) or Pokedex ID of the Pokémon. If omitted, a random Pokémon is chosen.
 
-*   **ASCII Art**: Displays an ASCII representation of the Pokémon.
-*   **Stats**: Shows Name, ID, Type, Height, Weight, and Abilities.
-*   **Color**: The output is color-coded based on the Pokémon's primary type.
+## Project Structure
+
+- `pokefetch.py`: The main entry point and logic script.
+- `requirements.txt`: List of Python dependencies.
+- `GEMINI.md`: Project documentation and context.
+
+## Troubleshooting
+
+- **"Pokemon not found"**: Check the spelling of the Pokémon's name.
+- **"Warning: Could not fetch extra details"**: This usually means there's a network issue or the scraping logic needs an update. The script will still display basic info from the local database.
+
+## Credits
+- ASCII art and basic data provided by the `pokemon` Python package.
+- Detailed stats and descriptions scraped from [pokemondb.net](https://pokemondb.net).
