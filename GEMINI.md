@@ -4,51 +4,52 @@ This document provides a technical overview of the **PokeFetch** project, a CLI 
 
 ## Project Overview
 
-*   **Goal**: Display ASCII art and metadata for a specific or random Pokémon.
+*   **Goal**: Display ASCII art, metadata, evolution chains, and type weaknesses for a specific or random Pokémon.
 *   **Language**: Python 3
-*   **Dependencies**: `pokemon` (PyPI package), `requests`, `beautifulsoup4`
+*   **Dependencies**: `pokemon`, `requests`, `beautifulsoup4`, `term-image`, `pillow`.
 
 ## Codebase Structure
 
-### `pokefetch.py`
-The main executable script.
-*   **Imports**: `argparse`, `random`, `sys`, `textwrap`, `requests`, `bs4`, and `pokemon.master`.
+### `src/pokefetch/main.py`
+The main executable logic.
+*   **Imports**: `argparse`, `random`, `sys`, `textwrap`, `requests`, `bs4`, `pokemon.master`, and `term_image`.
 *   **Logic**:
-    1.  Initializes `argparse` to accept an optional Pokémon name or ID.
+    1.  Initializes `argparse` to accept an optional Pokémon name/ID and a `--shiny` flag.
     2.  Fetches all Pokémon data using `catch_em_all()`.
     3.  Resolves the target Pokémon (by name case-insensitive, by ID, or random).
-    4.  **`fetch_extra_data(url)`**:
+    4.  **`fetch_extra_data(url, is_shiny)`**:
         *   Scrapes `pokemondb.net` using `requests` and `BeautifulSoup`.
-        *   Extracts the Pokedex entry description and Base Stats (HP, Atk, Def, etc.).
+        *   Extracts Pokedex entry, Base Stats, Evolution Chain, and Type Defenses (Weaknesses).
+        *   Determines the correct image URL (Artwork vs. Shiny Sprite).
+        *   Uses a local JSON cache in `~/.cache/pokefetch` to avoid redundant network calls.
     5.  **`display_pokemon(data)`**:
-        *   Extracts metadata (Name, ID, Type, Height, Weight, Abilities, Stats, Description).
+        *   Extracts metadata (Name, ID, Type, Height, Weight, Abilities, Stats, Weaknesses, Evolution).
         *   Determines ANSI color codes based on the Pokémon's primary type.
-        *   Splits ASCII art into lines.
-        *   Iterates through lines to print ASCII art and Info side-by-side with dynamic padding.
+        *   Attempts to render images using `imgcat` (iTerm2/WezTerm) or `term-image` (Block render).
+        *   Falls back to ASCII art if image rendering is unavailable.
 
-### `requirements.txt`
-Contains the project dependencies.
-*   `pokemon`: The library used for fetching Pokémon data and ASCII art.
-*   `requests`: Used for HTTP requests to fetch online data.
-*   `beautifulsoup4`: Used for parsing HTML content.
+### `pyproject.toml`
+The modern Python packaging configuration.
+*   Defines the project as an installable package `pokefetch`.
+*   Maps the `pokefetch` command to `pokefetch.main:main`.
 
 ## Features & Implementation Details
 
-*   **Type-Based Coloring**: The script uses a dictionary `type_colors` to map Pokémon types (like 'fire', 'grass') to specific ANSI escape codes, coloring the ASCII art and text headers accordingly.
-*   **Live Data Integration**: Connects to `pokemondb.net` to retrieve up-to-date descriptions and base stats that aren't available in the local database.
-*   **Layout Engine**: Custom logic calculates the maximum width of the ASCII art to ensure the textual information block is perfectly aligned to the right, regardless of the art's shape.
-*   **Error Handling**: Gracefully handles missing Pokémon names by printing an error and exiting. Fails gracefully if web fetching encounters errors.
+*   **Shiny Mode**: Fetches specific shiny sprites and adds a visual "✨" indicator in the name header.
+*   **Evolution & Weakness Parsing**: Analyzes the HTML structure of the Evolution Chart and Type Defense tables to extract actionable data for the user.
+*   **Multi-Engine Rendering**: Support for iTerm2/WezTerm protocol (`imgcat`), terminal block characters (`term-image`), and traditional ASCII fallback.
+*   **Type-Based Coloring**: Uses a dictionary `TYPE_COLORS` to map Pokémon types to specific ANSI escape codes.
 
 ## Usage Guide
 
 ```bash
-# Setup
-pip install -r requirements.txt
+# Install locally
+pip install .
 
 # Run (Random)
-python3 pokefetch.py
+pokefetch
 
-# Run (Specific)
-python3 pokefetch.py Snorlax
-python3 pokefetch.py 143
+# Run (Specific & Shiny)
+pokefetch Charizard --shiny
+pokefetch 143
 ```

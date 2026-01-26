@@ -1,3 +1,18 @@
+Metadata-Version: 2.4
+Name: pokefetch
+Version: 1.0.0
+Summary: Display pokemon info in neofetch style
+Author-email: Cammy <cammy@example.com>
+License: MIT
+Project-URL: Homepage, https://github.com/example/pokefetch
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: pokemon
+Requires-Dist: requests
+Requires-Dist: beautifulsoup4
+Requires-Dist: term-image
+Requires-Dist: pillow
+
 # PokeFetch
 
 PokeFetch is a command-line interface (CLI) tool that brings your favorite Pokémon to your terminal in a style inspired by `neofetch`. It displays ASCII art alongside detailed statistics, featuring dynamic coloring based on the Pokémon's type.

@@ -62,43 +62,41 @@ TYPE_COLORS = {
 }
 
 
-def fetch_extra_data(url: str) -> Dict[str, Any]:
-    """Fetches description and base stats from the pokemon's DB page."""
+def fetch_extra_data(url: str, is_shiny: bool = False) -> Dict[str, Any]:
+    """Fetches description, stats, evolution, and type defenses from the pokemon's DB page."""
     if not url:
         return {}
 
     # Check local cache
     cache_dir = os.path.expanduser("~/.cache/pokefetch")
     os.makedirs(cache_dir, exist_ok=True)
-    cache_key = hashlib.md5(url.encode("utf-8")).hexdigest()
+    # Include is_shiny in cache key so we cache shiny/normal separately
+    cache_key_str = f"{url}_{is_shiny}"
+    cache_key = hashlib.md5(cache_key_str.encode("utf-8")).hexdigest()
     cache_path = os.path.join(cache_dir, f"{cache_key}.json")
 
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r") as f:
                 cached_data = json.load(f)
-                # Only use cache if it has the image_url, otherwise try fetching again
                 if "image_url" in cached_data:
                     return cached_data
         except (IOError, json.JSONDecodeError):
-            pass  # Ignore corrupt cache
+            pass
 
     print(f"Fetching extra details from {url}...")
     try:
-        # Add User-Agent to avoid being blocked by some servers
         headers = {"User-Agent": "pokefetch-cli/1.0"}
         response = requests.get(url, headers=headers, timeout=5)
         response.raise_for_status()
     except Exception as e:
-        # Fail silently or just print a small warning so we don't crash the whole app
         print(f"Warning: Could not fetch extra details ({e})")
         return {}
 
     soup = BeautifulSoup(response.content, "html.parser")
     details = {}
 
-    # Description
-    # Look for 'Pokédex entries' header
+    # 1. Description
     pokedex_header = soup.find("h2", string="Pokédex entries")
     if pokedex_header:
         table = pokedex_header.find_next("table", class_="vitals-table")
@@ -107,18 +105,39 @@ def fetch_extra_data(url: str) -> Dict[str, Any]:
             if cell:
                 details["description"] = cell.get_text(strip=True)
     
-    # Image
-    # Look for the main artwork
-    # Usually <a href=".../artwork/name.jpg"> or <img src=".../artwork/name.jpg">
-    # We prefer the one in the generic container if possible, but artwork is key.
-    images = soup.find_all("img")
-    for img in images:
-        src = img.get("src", "")
-        if "artwork" in src:
-            details["image_url"] = src
-            break
+    # 2. Image (Shiny vs Normal)
+    image_found = False
+    if is_shiny:
+        # Try to find a high-res shiny sprite (Home) in the page
+        # Often loaded dynamically or present in galleries. 
+        # Strategy: Look for img with 'sprites/home/shiny'
+        images = soup.find_all("img")
+        for img in images:
+            src = img.get("src", "")
+            if "sprites/home/shiny" in src:
+                details["image_url"] = src
+                image_found = True
+                break
+        
+        # Fallback: Construct the probable URL if not found
+        # We need the pokemon name for this. We can try to guess it from the URL or title.
+        if not image_found:
+             # Extract name from URL: .../pokedex/name
+             name_slug = url.rstrip("/").split("/")[-1]
+             # Handle special cases? For now simple slug
+             details["image_url"] = f"https://img.pokemondb.net/sprites/home/shiny/{name_slug}.png"
+             image_found = True
+    else:
+        # Standard artwork logic
+        images = soup.find_all("img")
+        for img in images:
+            src = img.get("src", "")
+            if "artwork" in src:
+                details["image_url"] = src
+                image_found = True
+                break
 
-    # Base Stats
+    # 3. Base Stats
     stats_header = soup.find("h2", string="Base stats")
     if stats_header:
         table = stats_header.find_next("table", class_="vitals-table")
@@ -130,18 +149,61 @@ def fetch_extra_data(url: str) -> Dict[str, Any]:
                 value = row.find("td", class_="cell-num")
                 if header and value:
                     stat_name = header.get_text(strip=True)
-                    if stat_name in [
-                        "HP",
-                        "Attack",
-                        "Defense",
-                        "Sp. Atk",
-                        "Sp. Def",
-                        "Speed",
-                    ]:
+                    if stat_name in ["HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed"]:
                         stats[stat_name] = value.get_text(strip=True)
             details["stats"] = stats
 
-    # Save to cache if we successfully got data
+    # 4. Evolution Chain
+    evo_header = soup.find("h2", string="Evolution chart")
+    if evo_header:
+        # The evolution list is usually in a div with class 'evolution-profile' following the header
+        evo_container = evo_header.find_next("div", class_="evolution-profile")
+        if evo_container:
+            # Names are usually in 'ent-name' class or simple links inside infocards
+            evo_nodes = evo_container.find_all("a", class_="ent-name")
+            if evo_nodes:
+                details["evolution"] = [node.get_text(strip=True) for node in evo_nodes]
+
+    # 5. Type Defenses (Weaknesses)
+    defenses_header = soup.find("h2", string="Type defenses")
+    if defenses_header:
+        table = defenses_header.find_next("table") # class often 'type-table'
+        if table:
+            # Parse header for types
+            headers = [th.get_text(strip=True)[:3] for th in table.find_all("th") if th.get_text(strip=True)]
+            # Parse values
+            # Values are in the first row of body usually, or just after header row
+            # There might be multiple rows, usually the effectiveness is in the one with numbers
+            rows = table.find_all("tr")
+            # Find the row with effectiveness numbers
+            eff_row = None
+            for row in rows:
+                cells = row.find_all("td")
+                if cells and any(c.get_text(strip=True) for c in cells):
+                    eff_row = cells
+                    break
+            
+            if eff_row and len(eff_row) == len(headers):
+                weaknesses = []
+                for i, cell in enumerate(eff_row):
+                    val_text = cell.get_text(strip=True)
+                    # Convert to float logic: "2", "4", "½", "¼", "0"
+                    # We care about > 1
+                    is_weak = False
+                    if val_text == "2":
+                        is_weak = True
+                    elif val_text == "4":
+                        is_weak = True
+                    elif val_text in ["½", "¼", "0"]:
+                         is_weak = False
+                    elif val_text.replace('.', '', 1).isdigit() and float(val_text) > 1:
+                         is_weak = True
+                    
+                    if is_weak:
+                        weaknesses.append(headers[i])
+                
+                details["weaknesses"] = weaknesses
+
     if details:
         try:
             with open(cache_path, "w") as f:
@@ -210,6 +272,7 @@ def main():
     )
     parser.add_argument("name", nargs="?", help="Name of the pokemon to search for")
     parser.add_argument("--imgcat", action="store_true", help="Force usage of iTerm2 inline image protocol")
+    parser.add_argument("--shiny", action="store_true", help="Show shiny version")
     args = parser.parse_args()
 
     pokemons = catch_em_all()
@@ -222,8 +285,9 @@ def main():
     data = pokemons[target_pid]
 
     # Fetch extra data
-    extra = fetch_extra_data(data.get("link"))
+    extra = fetch_extra_data(data.get("link"), is_shiny=args.shiny)
     data.update(extra)
+    data["shiny"] = args.shiny
 
     display_pokemon(data, force_imgcat=args.imgcat)
 
@@ -250,7 +314,11 @@ def print_imgcat(image_path: str, width: int = 35, height: int = 20) -> bool:
 
 
 def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
-    image_path = download_image(data.get("image_url"), data.get("name", "unknown"))
+    img_name = data.get("name", "unknown")
+    if data.get("shiny"):
+        img_name += "-shiny"
+    
+    image_path = download_image(data.get("image_url"), img_name)
     
     art_lines = []
     used_imgcat = False
@@ -301,9 +369,14 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
     def label(text):
         return f"{COLORS['BOLD']}{ascii_color}{text}:{COLORS['RESET']}"
 
-    info_lines.append(f"{ascii_color}{COLORS['BOLD']}{data.get('name', 'Unknown')}{COLORS['RESET']}")
+    # Name Header
+    name_display = data.get('name', 'Unknown')
+    if data.get("shiny"):
+        name_display += " \u2728" # Sparkles
+    
+    info_lines.append(f"{ascii_color}{COLORS['BOLD']}{name_display}{COLORS['RESET']}")
     info_lines.append(
-        f"{ascii_color}" + "-" * (len(data.get("name", "Unknown"))) + f"{COLORS['RESET']}"
+        f"{ascii_color}" + "-" * (len(name_display)) + f"{COLORS['RESET']}"
     )
     info_lines.append(f"{label('ID')} {data.get('id', 'Unknown')}")
 
@@ -317,6 +390,26 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
     abilities_list = [a.title() for a in data.get("abilities", [])]
     abilities = ", ".join(abilities_list)
     info_lines.append(f"{label('Abilities')} {abilities}")
+    
+    # Weaknesses
+    weaknesses = data.get("weaknesses", [])
+    if weaknesses:
+        # Wrap if too long
+        w_str = ", ".join(weaknesses)
+        if len(w_str) > 40:
+             w_str = w_str[:37] + "..."
+        info_lines.append(f"{label('Weakness')} {w_str}")
+    
+    # Evolution
+    evo = data.get("evolution", [])
+    if evo:
+        # Simple arrow representation
+        evo_str = " -> ".join(evo)
+        # Check length
+        if len(evo_str) > 50:
+             # Try to split or truncate? Just truncate for CLI safety
+             evo_str = textwrap.shorten(evo_str, width=50, placeholder="...")
+        info_lines.append(f"{label('Evo')} {evo_str}")
 
     # Stats
     stats = data.get("stats", {})
