@@ -84,7 +84,6 @@ def fetch_extra_data(url: str, is_shiny: bool = False) -> Dict[str, Any]:
         except (IOError, json.JSONDecodeError):
             pass
 
-    print(f"Fetching extra details from {url}...")
     try:
         headers = {"User-Agent": "pokefetch-cli/1.0"}
         response = requests.get(url, headers=headers, timeout=5)
@@ -104,6 +103,20 @@ def fetch_extra_data(url: str, is_shiny: bool = False) -> Dict[str, Any]:
             cell = table.find("td", class_="cell-med-text")
             if cell:
                 details["description"] = cell.get_text(strip=True)
+
+    # 1.5 Genus (Species)
+    # This is usually in the first vitals-table under the header "Pokédex data"
+    # or just the first vitals-table on the page.
+    vitals_table = soup.find("table", class_="vitals-table")
+    if vitals_table:
+        rows = vitals_table.find_all("tr")
+        for row in rows:
+            th = row.find("th")
+            if th and th.get_text(strip=True) == "Species":
+                td = row.find("td")
+                if td:
+                    details["genus"] = td.get_text(strip=True)
+                break
     
     # 2. Image (Shiny vs Normal)
     image_found = False
@@ -371,12 +384,19 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
 
     # Name Header
     name_display = data.get('name', 'Unknown')
+    genus = data.get('genus')
+    
     if data.get("shiny"):
         name_display += " \u2728" # Sparkles
     
-    info_lines.append(f"{ascii_color}{COLORS['BOLD']}{name_display}{COLORS['RESET']}")
+    if genus:
+        header_text = f"{name_display}, the {genus}"
+    else:
+        header_text = name_display
+    
+    info_lines.append(f"{ascii_color}{COLORS['BOLD']}{header_text}{COLORS['RESET']}")
     info_lines.append(
-        f"{ascii_color}" + "-" * (len(name_display)) + f"{COLORS['RESET']}"
+        f"{ascii_color}" + "-" * (len(header_text)) + f"{COLORS['RESET']}"
     )
     info_lines.append(f"{label('ID')} {data.get('id', 'Unknown')}")
 

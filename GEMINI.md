@@ -43,7 +43,13 @@ The modern Python packaging configuration.
 ## Usage Guide
 
 ```bash
-# Install locally
+# Install via pipx (recommended for CLI tools)
+pipx install .
+
+# Update existing installation
+pipx install . --force
+
+# Or install locally
 pip install .
 
 # Run (Random)
