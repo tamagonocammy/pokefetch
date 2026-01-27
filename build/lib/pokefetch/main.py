@@ -386,13 +386,13 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
     name_display = data.get('name', 'Unknown')
     genus = data.get('genus')
     
-    if data.get("shiny"):
-        name_display += " \u2728" # Sparkles
-    
     if genus:
         header_text = f"{name_display}, the {genus}"
     else:
         header_text = name_display
+    
+    if data.get("shiny"):
+        header_text = f"\u2728 {header_text}"
     
     info_lines.append(f"{ascii_color}{COLORS['BOLD']}{header_text}{COLORS['RESET']}")
     info_lines.append(
