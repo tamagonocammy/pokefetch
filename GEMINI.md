@@ -19,7 +19,7 @@ The main executable logic.
     3.  Resolves the target Pokémon (by name case-insensitive, by ID, or random).
     4.  **`fetch_extra_data(url, is_shiny)`**:
         *   Scrapes `pokemondb.net` using `requests` and `BeautifulSoup`.
-        *   Extracts Pokedex entry, Base Stats, Evolution Chain, and Type Defenses (Weaknesses).
+        *   Extracts Pokedex entry, Genus (Species), Base Stats, Evolution Chain, and Type Defenses (Weaknesses).
         *   Determines the correct image URL (Artwork vs. Shiny Sprite).
         *   Uses a local JSON cache in `~/.cache/pokefetch` to avoid redundant network calls.
     5.  **`display_pokemon(data)`**:
@@ -35,6 +35,7 @@ The modern Python packaging configuration.
 
 ## Features & Implementation Details
 
+*   **Header with Genus**: Displays the Pokemon's name and its official title (e.g., "Pikachu, the Mouse Pokémon").
 *   **Shiny Mode**: Fetches specific shiny sprites and adds a visual "✨" indicator in the name header.
 *   **Evolution & Weakness Parsing**: Analyzes the HTML structure of the Evolution Chart and Type Defense tables to extract actionable data for the user.
 *   **Multi-Engine Rendering**: Support for iTerm2/WezTerm protocol (`imgcat`), terminal block characters (`term-image`), and traditional ASCII fallback.
