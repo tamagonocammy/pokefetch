@@ -1,86 +1,138 @@
 # PokeFetch
 
-PokeFetch is a command-line interface (CLI) tool that brings your favorite Pokémon to your terminal in a style inspired by `neofetch`. It displays ASCII art alongside detailed statistics, featuring dynamic coloring based on the Pokémon's type.
+`PokeFetch` is a terminal CLI inspired by `neofetch` that shows Pokemon profile info with styled output, artwork/ASCII, and live extra data.
 
-## Features
+Repository: [tamagonocammy/pokefetch](https://github.com/tamagonocammy/pokefetch)
 
-- **ASCII Art**: High-quality ASCII representations of every Pokémon.
-- **Detailed Stats**: Displays ID, Type, Height, Weight, Abilities, and Base Stats.
-- **Live Data**: Fetches up-to-date descriptions, **Evolution Chains**, and **Type Weaknesses** from [Pokémon Database](https://pokemondb.net).
-- **Shiny Mode**: Support for fetching and displaying Shiny Pokémon artwork (`--shiny`).
-- **Type-Based Coloring**: The output is color-coded to match the Pokémon's primary type.
-- **Responsive Layout**: Automatically adjusts padding to align text perfectly with the ASCII art.
+## Why use it
 
-## Installation
+- Quick Pokemon lookup directly from your terminal
+- Random Pokemon mode when no name is provided
+- Shiny mode for alternate artwork
+- Colored, readable output with key stats
+- Best-effort live extras (description, evolution, weaknesses) when available
 
-### Prerequisites
-- Python 3.8 or higher
-- Internet connection (for fetching live data)
+## Install
 
-### Setup
+Requirements:
 
-Clone the repository and install using `pip`:
+- Python `>=3.8`
+- Internet connection (for live extras and remote artwork)
+
+Clone and install:
 
 ```bash
-git clone https://github.com/yourusername/pokefetch.git
+git clone https://github.com/tamagonocammy/pokefetch.git
 cd pokefetch
-
-# Install locally
 pip install .
 ```
 
-Alternatively, for development (editable mode):
+For development:
+
 ```bash
 pip install -e .
 ```
 
-## Usage
-
-Once installed, you can use the `pokefetch` command:
+## Quickstart
 
 ```bash
-# Get a random Pokémon
+# Random Pokemon
 pokefetch
 
-# Get a specific Pokémon by name
+# By name
 pokefetch Snorlax
 
-# Get a specific Pokémon by ID
+# By id-like input (works if resolvable in the data set)
 pokefetch 143
 
-# Get the Shiny version!
+# Shiny mode
 pokefetch Charizard --shiny
 
-# Force iTerm2 image protocol (if supported)
+# Force iTerm2/compatible inline image protocol
 pokefetch Pikachu --imgcat
 ```
 
-### Running from Source
-If you haven't installed it as a package, you can run it directly:
+Run from source (without installing):
 
 ```bash
-export PYTHONPATH=$PYTHONPATH:$(pwd)/src
-python3 -m pokefetch.main Pikachu --shiny
+PYTHONPATH=src python3 -m pokefetch.main Pikachu --shiny
 ```
 
-## Configuration
-The script currently supports command-line arguments. No configuration file is needed.
+## CLI Reference
 
-- `[name_or_id]`: Optional. The name (case-insensitive) or Pokedex ID.
-- `--shiny`: Optional. Fetch and display the shiny version.
-- `--imgcat`: Optional. Force iTerm2 inline image display.
+Usage:
 
-## Project Structure
+```text
+pokefetch [name] [--shiny] [--imgcat]
+```
 
-- `src/pokefetch/main.py`: The main entry point and logic.
-- `pyproject.toml`: Build configuration and dependencies.
-- `GEMINI.md`: Project documentation and context.
+Arguments:
+
+- `name` (optional): Pokemon name (case-insensitive) or id key
+
+Options:
+
+- `--shiny`: Use shiny artwork
+- `--imgcat`: Force iTerm2-style inline image protocol
+- `-h`, `--help`: Show help
+
+Behavior notes:
+
+- If `name` is omitted, a random Pokemon is selected.
+- Display fallback order is:
+  1. `imgcat` protocol (when supported or forced)
+  2. `term-image` rendering
+  3. Built-in ASCII art
+- Extra details are fetched from [pokemondb.net](https://pokemondb.net) on a best-effort basis.
+- Cache locations:
+  - Metadata cache: `~/.cache/pokefetch`
+  - Downloaded images: `~/.cache/pokefetch/images`
 
 ## Troubleshooting
 
-- **"Pokemon not found"**: Check the spelling of the Pokémon's name.
-- **"Warning: Could not fetch extra details"**: Network issue or scraping logic outdated. Basic info will still display.
+- `Error: Pokemon '<name>' not found.`:
+  - Check spelling and try a canonical Pokemon name.
+- `Warning: Could not fetch extra details (...)`:
+  - This is usually a temporary network issue or source-page structure change.
+  - Core output can still work using local package data.
+- No inline image shown:
+  - Install dependencies (`pip install -e .` or `pip install .`)
+  - Try `--imgcat` in a compatible terminal
+  - If image rendering is unavailable, ASCII fallback is expected
+
+## Contributing
+
+Contributions are welcome.
+
+Suggested local workflow:
+
+```bash
+git clone https://github.com/tamagonocammy/pokefetch.git
+cd pokefetch
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pokefetch --help
+```
+
+When opening a PR, include:
+
+- What changed
+- Why it changed
+- How you tested it
+
+## Roadmap
+
+- Improve robustness of live-data parsing
+- Add tests for argument handling and fallback rendering paths
+- Improve support for special-form and edge-case Pokemon names
+- Add optional offline-first mode for cached lookups
+
+## License
+
+MIT
 
 ## Credits
-- ASCII art and basic data provided by the `pokemon` Python package.
-- Detailed stats and descriptions scraped from [pokemondb.net](https://pokemondb.net).
+
+- Core Pokemon data and ASCII art from the [`pokemon`](https://pypi.org/project/pokemon/) package
+- Extra scraped details from [pokemondb.net](https://pokemondb.net)
