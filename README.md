@@ -69,6 +69,7 @@ pokefetch [name] [--shiny] [--imgcat]
 Arguments:
 
 - `name` (optional): Pokemon name (case-insensitive) or id key
+  - Common variants are accepted (for example: `mr-mime`, `farfetchd`, `nidoran-f`, `type-null`)
 
 Options:
 

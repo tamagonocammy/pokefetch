@@ -25,3 +25,8 @@ pokefetch = "pokefetch.main:main"
 
 [project.urls]
 Homepage = "https://github.com/example/pokefetch"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0"
+]

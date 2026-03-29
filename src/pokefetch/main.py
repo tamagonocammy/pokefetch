@@ -4,9 +4,10 @@ import hashlib
 import json
 import os
 import random
+import re
 import sys
 import textwrap
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import shutil
 import warnings
 
@@ -61,6 +62,280 @@ TYPE_COLORS = {
     "fairy": COLORS["MAGENTA"],
 }
 
+CACHE_SCHEMA_VERSION = "2"
+STAT_NAMES = ["HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed"]
+SPECIAL_ALIAS_OVERRIDES = {
+    "nidoranf": "nidoranfemale",
+    "nidoranm": "nidoranmale",
+}
+
+
+def _normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip())
+
+
+def _normalize_gender_token(token: str) -> str:
+    if token in {"f", "female"}:
+        return "female"
+    if token in {"m", "male"}:
+        return "male"
+    return token
+
+
+def _compact_lookup_key(value: Optional[str]) -> str:
+    if not value:
+        return ""
+
+    lowered = value.lower()
+    lowered = lowered.replace("♀", " female ").replace("♂", " male ")
+    lowered = lowered.replace("’", "").replace("'", "")
+    lowered = re.sub(r"[-_./:]", " ", lowered)
+    lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+    tokens = [_normalize_gender_token(token) for token in lowered.split()]
+    return "".join(tokens)
+
+
+def _slug_from_url(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    return url.rstrip("/").split("/")[-1].lower()
+
+
+def _build_alias_index(pokemons: Dict[str, Any]) -> Dict[str, str]:
+    alias_index: Dict[str, str] = {}
+    for pid, data in pokemons.items():
+        name = data.get("name")
+        if name:
+            alias_index[_compact_lookup_key(name)] = pid
+
+        slug = _slug_from_url(data.get("link"))
+        if slug:
+            alias_index[_compact_lookup_key(slug)] = pid
+    return alias_index
+
+
+def _cache_key_payload(url: str, is_shiny: bool) -> str:
+    return f"v{CACHE_SCHEMA_VERSION}|{url}|shiny={is_shiny}"
+
+
+def _build_cache_key(url: str, is_shiny: bool = False) -> str:
+    return hashlib.md5(_cache_key_payload(url, is_shiny).encode("utf-8")).hexdigest()
+
+
+def _load_cached_data(cache_path: str) -> Dict[str, Any]:
+    if not os.path.exists(cache_path):
+        return {}
+
+    try:
+        with open(cache_path, "r") as f:
+            cached_data = json.load(f)
+        if isinstance(cached_data, dict) and cached_data:
+            return cached_data
+    except (IOError, json.JSONDecodeError):
+        return {}
+    return {}
+
+
+def _find_header(soup: BeautifulSoup, candidates: List[str]):
+    wanted = {candidate.lower() for candidate in candidates}
+    for header in soup.find_all(["h2", "h3"]):
+        header_text = _normalize_text(header.get_text(" ", strip=True)).lower()
+        if header_text in wanted:
+            return header
+    return None
+
+
+def _extract_description(soup: BeautifulSoup) -> Optional[str]:
+    header = _find_header(soup, ["Pokédex entries", "Pokedex entries"])
+    if not header:
+        return None
+
+    for table in header.find_all_next("table", class_="vitals-table", limit=2):
+        cell = table.find("td", class_="cell-med-text")
+        if cell:
+            text = _normalize_text(cell.get_text(" ", strip=True))
+            if text:
+                return text
+    return None
+
+
+def _extract_genus(soup: BeautifulSoup) -> Optional[str]:
+    for table in soup.find_all("table", class_="vitals-table"):
+        for row in table.find_all("tr"):
+            th = row.find("th")
+            td = row.find("td")
+            if not th or not td:
+                continue
+            label = _normalize_text(th.get_text(" ", strip=True)).lower()
+            if label in {"species", "genus"}:
+                genus = _normalize_text(td.get_text(" ", strip=True))
+                if genus:
+                    return genus
+    return None
+
+
+def _normalize_image_url(src: str) -> str:
+    if src.startswith("//"):
+        return f"https:{src}"
+    if src.startswith("/"):
+        return f"https://pokemondb.net{src}"
+    return src
+
+
+def _extract_image_url(soup: BeautifulSoup, url: str, is_shiny: bool) -> Optional[str]:
+    if is_shiny:
+        shiny_matches = []
+        for img in soup.find_all("img"):
+            src = (img.get("src") or img.get("data-src") or "").strip()
+            if src and "sprites/home/shiny" in src:
+                shiny_matches.append(_normalize_image_url(src))
+        if shiny_matches:
+            return shiny_matches[0]
+        slug = _slug_from_url(url)
+        if slug:
+            return f"https://img.pokemondb.net/sprites/home/shiny/{slug}.png"
+        return None
+
+    artwork_priorities = ("official-artwork", "artwork", "sprites/home/normal")
+    for priority in artwork_priorities:
+        for img in soup.find_all("img"):
+            src = (img.get("src") or img.get("data-src") or "").strip()
+            if src and priority in src:
+                return _normalize_image_url(src)
+    return None
+
+
+def _extract_stats(soup: BeautifulSoup) -> Dict[str, str]:
+    header = _find_header(soup, ["Base stats", "Base Stats"])
+    if not header:
+        return {}
+
+    table = header.find_next("table", class_="vitals-table")
+    if not table:
+        return {}
+
+    stats: Dict[str, str] = {}
+    for row in table.find_all("tr"):
+        stat_header = row.find("th")
+        stat_value = row.find("td", class_="cell-num") or row.find("td")
+        if not stat_header or not stat_value:
+            continue
+        stat_name = _normalize_text(stat_header.get_text(" ", strip=True))
+        if stat_name in STAT_NAMES:
+            value_text = _normalize_text(stat_value.get_text(" ", strip=True))
+            if value_text and any(char.isdigit() for char in value_text):
+                stats[stat_name] = value_text
+    return stats
+
+
+def _extract_evolution(soup: BeautifulSoup) -> List[str]:
+    header = _find_header(soup, ["Evolution chart", "Evolution chain"])
+    container = None
+    if header:
+        container = header.find_next("div", class_="evolution-profile")
+        if not container:
+            container = header.find_next("div", class_="infocard-list-evo")
+    if not container:
+        container = soup.find("div", class_="evolution-profile")
+    if not container:
+        container = soup.find("div", class_="infocard-list-evo")
+    if not container:
+        return []
+
+    names: List[str] = []
+    seen = set()
+    for node in container.find_all("a"):
+        node_name = _normalize_text(node.get_text(" ", strip=True))
+        if not node_name:
+            continue
+        href = node.get("href", "")
+        if "/pokedex/" not in href and "ent-name" not in (node.get("class") or []):
+            continue
+        if node_name not in seen:
+            names.append(node_name)
+            seen.add(node_name)
+    return names
+
+
+def _parse_multiplier(value: str) -> Optional[float]:
+    value = value.strip()
+    mapping = {"4": 4.0, "2": 2.0, "1": 1.0, "0": 0.0, "½": 0.5, "¼": 0.25}
+    if value in mapping:
+        return mapping[value]
+    if "/" in value:
+        parts = value.split("/", 1)
+        if len(parts) == 2 and parts[0].strip().isdigit() and parts[1].strip().isdigit():
+            denominator = float(parts[1].strip())
+            if denominator != 0:
+                return float(parts[0].strip()) / denominator
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _extract_weaknesses(soup: BeautifulSoup) -> List[str]:
+    header = _find_header(soup, ["Type defenses", "Type Defenses", "Type effectiveness"])
+    if not header:
+        return []
+
+    table = header.find_next("table")
+    if not table:
+        return []
+
+    header_cells = table.find_all("th")
+    raw_headers: List[str] = []
+    for cell in header_cells:
+        text = _normalize_text(cell.get_text(" ", strip=True))
+        if text and len(text) <= 10:
+            raw_headers.append(text)
+
+    data_row = None
+    for row in table.find_all("tr"):
+        tds = row.find_all("td")
+        if tds and any(_normalize_text(td.get_text(" ", strip=True)) for td in tds):
+            data_row = tds
+            break
+
+    if not raw_headers or not data_row:
+        return []
+
+    width = min(len(raw_headers), len(data_row))
+    weaknesses: List[str] = []
+    for idx in range(width):
+        multiplier = _parse_multiplier(_normalize_text(data_row[idx].get_text(" ", strip=True)))
+        if multiplier is not None and multiplier > 1:
+            weaknesses.append(raw_headers[idx][:3].title())
+
+    return weaknesses
+
+
+def parse_extra_data_from_html(html: Any, url: str, is_shiny: bool = False) -> Dict[str, Any]:
+    soup = BeautifulSoup(html, "html.parser")
+
+    details: Dict[str, Any] = {}
+    description = _extract_description(soup)
+    genus = _extract_genus(soup)
+    image_url = _extract_image_url(soup, url, is_shiny)
+    stats = _extract_stats(soup)
+    evolution = _extract_evolution(soup)
+    weaknesses = _extract_weaknesses(soup)
+
+    if description:
+        details["description"] = description
+    if genus:
+        details["genus"] = genus
+    if image_url:
+        details["image_url"] = image_url
+    if stats:
+        details["stats"] = stats
+    if evolution:
+        details["evolution"] = evolution
+    if weaknesses:
+        details["weaknesses"] = weaknesses
+
+    return details
+
 
 def fetch_extra_data(url: str, is_shiny: bool = False) -> Dict[str, Any]:
     """Fetches description, stats, evolution, and type defenses from the pokemon's DB page."""
@@ -71,18 +346,12 @@ def fetch_extra_data(url: str, is_shiny: bool = False) -> Dict[str, Any]:
     cache_dir = os.path.expanduser("~/.cache/pokefetch")
     os.makedirs(cache_dir, exist_ok=True)
     # Include is_shiny in cache key so we cache shiny/normal separately
-    cache_key_str = f"{url}_{is_shiny}"
-    cache_key = hashlib.md5(cache_key_str.encode("utf-8")).hexdigest()
+    cache_key = _build_cache_key(url, is_shiny)
     cache_path = os.path.join(cache_dir, f"{cache_key}.json")
 
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path, "r") as f:
-                cached_data = json.load(f)
-                if "image_url" in cached_data:
-                    return cached_data
-        except (IOError, json.JSONDecodeError):
-            pass
+    cached_data = _load_cached_data(cache_path)
+    if cached_data:
+        return cached_data
 
     try:
         headers = {"User-Agent": "pokefetch-cli/1.0"}
@@ -92,130 +361,7 @@ def fetch_extra_data(url: str, is_shiny: bool = False) -> Dict[str, Any]:
         print(f"Warning: Could not fetch extra details ({e})")
         return {}
 
-    soup = BeautifulSoup(response.content, "html.parser")
-    details = {}
-
-    # 1. Description
-    pokedex_header = soup.find("h2", string="Pokédex entries")
-    if pokedex_header:
-        table = pokedex_header.find_next("table", class_="vitals-table")
-        if table:
-            cell = table.find("td", class_="cell-med-text")
-            if cell:
-                details["description"] = cell.get_text(strip=True)
-
-    # 1.5 Genus (Species)
-    # This is usually in the first vitals-table under the header "Pokédex data"
-    # or just the first vitals-table on the page.
-    vitals_table = soup.find("table", class_="vitals-table")
-    if vitals_table:
-        rows = vitals_table.find_all("tr")
-        for row in rows:
-            th = row.find("th")
-            if th and th.get_text(strip=True) == "Species":
-                td = row.find("td")
-                if td:
-                    details["genus"] = td.get_text(strip=True)
-                break
-    
-    # 2. Image (Shiny vs Normal)
-    image_found = False
-    if is_shiny:
-        # Try to find a high-res shiny sprite (Home) in the page
-        # Often loaded dynamically or present in galleries. 
-        # Strategy: Look for img with 'sprites/home/shiny'
-        images = soup.find_all("img")
-        for img in images:
-            src = img.get("src", "")
-            if "sprites/home/shiny" in src:
-                details["image_url"] = src
-                image_found = True
-                break
-        
-        # Fallback: Construct the probable URL if not found
-        # We need the pokemon name for this. We can try to guess it from the URL or title.
-        if not image_found:
-             # Extract name from URL: .../pokedex/name
-             name_slug = url.rstrip("/").split("/")[-1]
-             # Handle special cases? For now simple slug
-             details["image_url"] = f"https://img.pokemondb.net/sprites/home/shiny/{name_slug}.png"
-             image_found = True
-    else:
-        # Standard artwork logic
-        images = soup.find_all("img")
-        for img in images:
-            src = img.get("src", "")
-            if "artwork" in src:
-                details["image_url"] = src
-                image_found = True
-                break
-
-    # 3. Base Stats
-    stats_header = soup.find("h2", string="Base stats")
-    if stats_header:
-        table = stats_header.find_next("table", class_="vitals-table")
-        if table:
-            rows = table.find_all("tr")
-            stats = {}
-            for row in rows:
-                header = row.find("th")
-                value = row.find("td", class_="cell-num")
-                if header and value:
-                    stat_name = header.get_text(strip=True)
-                    if stat_name in ["HP", "Attack", "Defense", "Sp. Atk", "Sp. Def", "Speed"]:
-                        stats[stat_name] = value.get_text(strip=True)
-            details["stats"] = stats
-
-    # 4. Evolution Chain
-    evo_header = soup.find("h2", string="Evolution chart")
-    if evo_header:
-        # The evolution list is usually in a div with class 'evolution-profile' following the header
-        evo_container = evo_header.find_next("div", class_="evolution-profile")
-        if evo_container:
-            # Names are usually in 'ent-name' class or simple links inside infocards
-            evo_nodes = evo_container.find_all("a", class_="ent-name")
-            if evo_nodes:
-                details["evolution"] = [node.get_text(strip=True) for node in evo_nodes]
-
-    # 5. Type Defenses (Weaknesses)
-    defenses_header = soup.find("h2", string="Type defenses")
-    if defenses_header:
-        table = defenses_header.find_next("table") # class often 'type-table'
-        if table:
-            # Parse header for types
-            headers = [th.get_text(strip=True)[:3] for th in table.find_all("th") if th.get_text(strip=True)]
-            # Parse values
-            # Values are in the first row of body usually, or just after header row
-            # There might be multiple rows, usually the effectiveness is in the one with numbers
-            rows = table.find_all("tr")
-            # Find the row with effectiveness numbers
-            eff_row = None
-            for row in rows:
-                cells = row.find_all("td")
-                if cells and any(c.get_text(strip=True) for c in cells):
-                    eff_row = cells
-                    break
-            
-            if eff_row and len(eff_row) == len(headers):
-                weaknesses = []
-                for i, cell in enumerate(eff_row):
-                    val_text = cell.get_text(strip=True)
-                    # Convert to float logic: "2", "4", "½", "¼", "0"
-                    # We care about > 1
-                    is_weak = False
-                    if val_text == "2":
-                        is_weak = True
-                    elif val_text == "4":
-                        is_weak = True
-                    elif val_text in ["½", "¼", "0"]:
-                         is_weak = False
-                    elif val_text.replace('.', '', 1).isdigit() and float(val_text) > 1:
-                         is_weak = True
-                    
-                    if is_weak:
-                        weaknesses.append(headers[i])
-                
-                details["weaknesses"] = weaknesses
+    details = parse_extra_data_from_html(response.content, url=url, is_shiny=is_shiny)
 
     if details:
         try:
@@ -262,19 +408,25 @@ def resolve_pokemon_id(name_or_id: Optional[str], pokemons: Dict[str, Any]) -> O
     """Resolves the pokemon ID from a name or ID string."""
     if not name_or_id:
         return random.choice(list(pokemons.keys()))
-    
+
+    search_key = name_or_id.lower()
+    if search_key in pokemons:
+        return search_key
+
     # Create name to ID mapping (case insensitive)
     name_to_id = {}
     for pid, data in pokemons.items():
         if "name" in data:
             name_to_id[data["name"].lower()] = pid
 
-    search_key = name_or_id.lower()
     if search_key in name_to_id:
         return name_to_id[search_key]
-    
-    if search_key in pokemons:
-        return search_key
+
+    alias_index = _build_alias_index(pokemons)
+    compact_key = _compact_lookup_key(name_or_id)
+    compact_key = SPECIAL_ALIAS_OVERRIDES.get(compact_key, compact_key)
+    if compact_key in alias_index:
+        return alias_index[compact_key]
         
     return None
 
