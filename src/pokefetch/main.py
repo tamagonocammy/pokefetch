@@ -7,6 +7,7 @@ import random
 import re
 import sys
 import textwrap
+from datetime import date
 from typing import Any, Dict, List, Optional
 import shutil
 import warnings
@@ -438,10 +439,17 @@ def main():
     parser.add_argument("name", nargs="?", help="Name of the pokemon to search for")
     parser.add_argument("--imgcat", action="store_true", help="Force usage of iTerm2 inline image protocol")
     parser.add_argument("--shiny", action="store_true", help="Show shiny version")
+    parser.add_argument("--today", action="store_true", help="Show today's Pokémon (same pick all day)")
     args = parser.parse_args()
 
     pokemons = catch_em_all()
-    target_pid = resolve_pokemon_id(args.name, pokemons)
+
+    if args.today and not args.name:
+        random.seed(date.today().toordinal())
+        target_pid = resolve_pokemon_id(None, pokemons)
+        random.seed()
+    else:
+        target_pid = resolve_pokemon_id(args.name, pokemons)
 
     if not target_pid:
         print(f"Error: Pokemon '{args.name}' not found.")
@@ -476,6 +484,12 @@ def print_imgcat(image_path: str, width: int = 35, height: int = 20) -> bool:
         return True
     except Exception:
         return False
+
+
+def _format_stat_bar(stat_label: str, value: int, color: str, max_val: int = 255, bar_width: int = 18) -> str:
+    filled = max(0, min(bar_width, round(value / max_val * bar_width)))
+    bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
+    return f"{COLORS['BOLD']}{color}{stat_label:<4}{COLORS['RESET']} {color}{bar}{COLORS['RESET']} {value:>3}"
 
 
 def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
@@ -587,15 +601,20 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
     stats = data.get("stats", {})
     if stats:
         info_lines.append("")
-        info_lines.append(
-            f"{label('HP')} {stats.get('HP', '?')}  {label('Speed')} {stats.get('Speed', '?')}"
-        )
-        info_lines.append(
-            f"{label('Atk')} {stats.get('Attack', '?')}  {label('Def')} {stats.get('Defense', '?')}"
-        )
-        info_lines.append(
-            f"{label('SpA')} {stats.get('Sp. Atk', '?')}  {label('SpD')} {stats.get('Sp. Def', '?')}"
-        )
+        stat_rows = [
+            ("HP",   stats.get("HP")),
+            ("Atk",  stats.get("Attack")),
+            ("Def",  stats.get("Defense")),
+            ("SpA",  stats.get("Sp. Atk")),
+            ("SpD",  stats.get("Sp. Def")),
+            ("Spd",  stats.get("Speed")),
+        ]
+        for slabel, sval in stat_rows:
+            if sval is not None:
+                try:
+                    info_lines.append(_format_stat_bar(slabel, int(sval), ascii_color))
+                except (ValueError, TypeError):
+                    pass
 
     # Description
     desc = data.get("description")
