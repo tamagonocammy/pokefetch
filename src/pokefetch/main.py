@@ -491,6 +491,36 @@ def print_imgcat(image_path: str, width: int = 35, height: int = 20) -> bool:
         return False
 
 
+def print_kitty(image_path: str, cols: int = 35, rows: int = 20) -> bool:
+    """Displays image using Kitty graphics protocol (supported by Ghostty). Returns True if successful."""
+    try:
+        with open(image_path, "rb") as f:
+            data = f.read()
+
+        encoded = base64.b64encode(data).decode("ascii")
+        chunk_size = 4096
+        chunks = [encoded[i:i + chunk_size] for i in range(0, len(encoded), chunk_size)]
+
+        if not chunks:
+            return False
+
+        def _apc(payload: str) -> str:
+            return f"\033_{payload}\033\\"
+
+        if len(chunks) == 1:
+            sys.stdout.write(_apc(f"a=T,f=100,t=d,m=0,c={cols},r={rows};{chunks[0]}"))
+        else:
+            sys.stdout.write(_apc(f"a=T,f=100,t=d,m=1,c={cols},r={rows};{chunks[0]}"))
+            for chunk in chunks[1:-1]:
+                sys.stdout.write(_apc(f"m=1;{chunk}"))
+            sys.stdout.write(_apc(f"m=0;{chunks[-1]}"))
+
+        sys.stdout.flush()
+        return True
+    except Exception:
+        return False
+
+
 def _format_stat_bar(stat_label: str, value: int, color: str, max_val: int = 255, bar_width: int = 18) -> str:
     filled = max(0, min(bar_width, round(value / max_val * bar_width)))
     bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
@@ -509,15 +539,19 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
     imgcat_width = 35
     imgcat_height = 20
 
-    # Check for iTerm2 or WezTerm via environment variable
     term_program = os.environ.get("TERM_PROGRAM", "")
     lc_terminal = os.environ.get("LC_TERMINAL", "")
     in_tmux = bool(os.environ.get("TMUX"))
-    # In tmux, passthrough lets the underlying terminal render imgcat
+    is_ghostty = term_program == "ghostty" or bool(os.environ.get("GHOSTTY_RESOURCES_DIR"))
     is_iterm = force_imgcat or in_tmux or term_program in ["iTerm.app", "WezTerm", "vscode"] or lc_terminal == "iTerm2" or "imgcat" in sys.argv
 
-    # Try imgcat first if in a supported terminal
-    if image_path and is_iterm:
+    # Ghostty: Kitty graphics protocol
+    if image_path and is_ghostty:
+        if print_kitty(image_path, cols=imgcat_width, rows=imgcat_height):
+            used_imgcat = True
+
+    # iTerm2 / WezTerm / tmux passthrough: OSC 1337
+    if image_path and not used_imgcat and is_iterm:
         if print_imgcat(image_path, width=imgcat_width, height=imgcat_height):
             used_imgcat = True
 
