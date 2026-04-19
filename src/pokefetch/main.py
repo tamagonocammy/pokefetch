@@ -504,8 +504,14 @@ def print_kitty(image_path: str, cols: int = 35, rows: int = 20) -> bool:
         if not chunks:
             return False
 
+        in_tmux = bool(os.environ.get("TMUX"))
+
         def _apc(payload: str) -> str:
-            return f"\033_{payload}\033\\"
+            raw = f"\033_{payload}\033\\"
+            if in_tmux:
+                # DCS passthrough: double every ESC inside the payload
+                return f"\033Ptmux;{raw.replace(chr(27), chr(27) + chr(27))}\033\\"
+            return raw
 
         if len(chunks) == 1:
             sys.stdout.write(_apc(f"a=T,f=100,t=d,m=0,c={cols},r={rows};{chunks[0]}"))
@@ -542,10 +548,11 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
     term_program = os.environ.get("TERM_PROGRAM", "")
     lc_terminal = os.environ.get("LC_TERMINAL", "")
     in_tmux = bool(os.environ.get("TMUX"))
+    # GHOSTTY_RESOURCES_DIR is inherited through tmux; TERM_PROGRAM may be overridden
     is_ghostty = term_program == "ghostty" or bool(os.environ.get("GHOSTTY_RESOURCES_DIR"))
-    is_iterm = force_imgcat or in_tmux or term_program in ["iTerm.app", "WezTerm", "vscode"] or lc_terminal == "iTerm2" or "imgcat" in sys.argv
+    is_iterm = force_imgcat or (in_tmux and not is_ghostty) or term_program in ["iTerm.app", "WezTerm", "vscode"] or lc_terminal == "iTerm2" or "imgcat" in sys.argv
 
-    # Ghostty: Kitty graphics protocol
+    # Ghostty: Kitty graphics protocol (works in and out of tmux via DCS passthrough)
     if image_path and is_ghostty:
         if print_kitty(image_path, cols=imgcat_width, rows=imgcat_height):
             used_imgcat = True
