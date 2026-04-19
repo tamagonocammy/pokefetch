@@ -513,10 +513,12 @@ def print_kitty(image_path: str, cols: int = 35, rows: int = 20) -> bool:
                 return f"\033Ptmux;{raw.replace(chr(27), chr(27) + chr(27))}\033\\"
             return raw
 
+        # q=2: suppress terminal response (otherwise Ghostty sends back an APC
+        # confirmation that corrupts stdout)
         if len(chunks) == 1:
-            sys.stdout.write(_apc(f"a=T,f=100,t=d,m=0,c={cols},r={rows};{chunks[0]}"))
+            sys.stdout.write(_apc(f"a=T,f=100,t=d,q=2,m=0,c={cols},r={rows};{chunks[0]}"))
         else:
-            sys.stdout.write(_apc(f"a=T,f=100,t=d,m=1,c={cols},r={rows};{chunks[0]}"))
+            sys.stdout.write(_apc(f"a=T,f=100,t=d,q=2,m=1,c={cols},r={rows};{chunks[0]}"))
             for chunk in chunks[1:-1]:
                 sys.stdout.write(_apc(f"m=1;{chunk}"))
             sys.stdout.write(_apc(f"m=0;{chunks[-1]}"))
