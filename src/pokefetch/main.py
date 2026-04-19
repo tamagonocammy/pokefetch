@@ -470,17 +470,22 @@ def print_imgcat(image_path: str, width: int = 35, height: int = 20) -> bool:
     try:
         with open(image_path, "rb") as f:
             data = f.read()
-        
+
         encoded = base64.b64encode(data).decode("ascii")
         size = len(data)
         name = base64.b64encode(os.path.basename(image_path).encode("utf-8")).decode("ascii")
-        
-        # OSC 1337 ; File = [args] : Content ST
-        # ST is usually BEL (\a) or ESC \
-        print(
-            f"\033]1337;File=name={name};inline=1;size={size};width={width};height={height};preserveAspectRatio=1:{encoded}\a",
-            end=""
-        )
+
+        osc = f"\033]1337;File=name={name};inline=1;size={size};width={width};height={height};preserveAspectRatio=1:{encoded}\a"
+
+        if os.environ.get("TMUX"):
+            # Wrap in tmux DCS passthrough; each ESC inside the payload must be doubled
+            payload = osc.replace("\033", "\033\033")
+            seq = f"\033Ptmux;{payload}\033\\"
+        else:
+            seq = osc
+
+        sys.stdout.write(seq)
+        sys.stdout.flush()
         return True
     except Exception:
         return False
@@ -507,21 +512,20 @@ def display_pokemon(data: Dict[str, Any], force_imgcat: bool = False):
     # Check for iTerm2 or WezTerm via environment variable
     term_program = os.environ.get("TERM_PROGRAM", "")
     lc_terminal = os.environ.get("LC_TERMINAL", "")
-    is_iterm = force_imgcat or term_program in ["iTerm.app", "WezTerm", "vscode"] or lc_terminal == "iTerm2" or "imgcat" in sys.argv
+    in_tmux = bool(os.environ.get("TMUX"))
+    # In tmux, passthrough lets the underlying terminal render imgcat
+    is_iterm = force_imgcat or in_tmux or term_program in ["iTerm.app", "WezTerm", "vscode"] or lc_terminal == "iTerm2" or "imgcat" in sys.argv
 
     # Try imgcat first if in a supported terminal
     if image_path and is_iterm:
-         # We rely on our internal implementation
-         if print_imgcat(image_path, width=imgcat_width, height=imgcat_height):
-             used_imgcat = True
+        if print_imgcat(image_path, width=imgcat_width, height=imgcat_height):
+            used_imgcat = True
 
     # Try term-image if imgcat was not used and library is available
     if not used_imgcat and IMAGE_LIB_AVAILABLE and image_path:
         try:
             image = from_file(image_path)
-            # Set a reasonable height
             image.height = imgcat_height
-            # Render to string
             art_str = str(image)
             art_lines = art_str.split("\n")
         except (TermImageError, Exception):
