@@ -1,0 +1,22 @@
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
+
+# Cache
+.cache/

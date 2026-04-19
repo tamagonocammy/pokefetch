@@ -1,5 +1,0 @@
-pokemon
-requests
-beautifulsoup4
-term-image
-pillow
